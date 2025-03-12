@@ -8,9 +8,21 @@ This project is an unofficial implementation of AlexNet, using C Program Languag
 
 **Only support CPU now**
 
-**Get compressed data in the below link** </br>
-https://drive.google.com/drive/folders/19Qxg4PVzrO-PVLo_Oh8sTNylTLBr5fC7?usp=sharing
+**Get compressed data in the below link** 
 
+[google storge](https://drive.google.com/drive/folders/19Qxg4PVzrO-PVLo_Oh8sTNylTLBr5fC7?usp=sharing)
+
+Decompress the file into directory ```./```. The images.list file is already written for the ```./imagenette2``` folder. 
+
+Dataset link: [imagenette](https://github.com/fastai/imagenette)
+
+To train the model run:
+```
+./alexnet train -batchsize 8 -epochs 10  -save ./temp.weights 
+```
+change the batchsize and epochs for better performance
+
+# Original README
 ## Features
 
 - **Effective matrix multiply**, w.r.t L1/L2 cache
