@@ -591,6 +591,8 @@ void alexnet_train(alexnet *net, int epochs)
     int *batch_Y = (int *)malloc(net->batchsize * sizeof(int));
     int preds[net->fc3.out_units];
     FILE *fp = fopen("./images.list", "r");
+    struct timespec p_start, p_finish;
+    clock_gettime(CLOCK_MONOTONIC, &p_start);
 
     printf("\n\n>>>>>>>>>>>>>>>>>>>>>>>>>>> training begin >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
     struct timespec start, finish;
@@ -636,6 +638,11 @@ void alexnet_train(alexnet *net, int epochs)
         printf("-----------------------------%d---------------------------------\n", e + 1);
     }
     printf(">>>>>>>>>>>>>>>>>>>>>>>>>>> training end >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n\n");
+
+    clock_gettime(CLOCK_MONOTONIC, &p_finish);
+    duration = (p_finish.tv_sec - p_start.tv_sec);
+    duration += (p_finish.tv_nsec - p_start.tv_nsec) / 1000000000.0;
+    printf("total training duration: %.4fs \n", duration);
 
     fclose(fp);
     free(net->input);

@@ -2,3 +2,4 @@ imagenette2/
 *.zip
 *.weight
 .DS_Store
+*.weights
