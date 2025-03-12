@@ -10,19 +10,20 @@
 #include <time.h>
 #include "alexnet.h"
 #include "data.h"
-#define MAX(a,b) (((a) > (b)) ? (a) : (b))
-#define MIN(a,b) (((a) < (b)) ? (a) : (b))
+#include <pthread.h>
+#define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 #define LEARNING_RATE 0.001
 
-static struct timespec start, finish; 
+static struct timespec start, finish;
 static float duration;
 
 static void cross_entropy_loss(float *delta_preds, const float *preds, const int *labels, int units, int BATCH_SIZE)
 {
     /**
      * Cross Entropy backward
-     * 
+     *
      * Input:
      *      preds       [BATCH_SIZE, units]
      *      labels      [BATCH_SIZE]
@@ -34,18 +35,21 @@ static void cross_entropy_loss(float *delta_preds, const float *preds, const int
     {
         register float esum = 0;
         for (int i = 0; i < units; i++)
-            esum += exp(preds[i+p*units]);
+            esum += exp(preds[i + p * units]);
 
-        ce_loss += 0 - log(exp(preds[labels[p]+p*units]) / esum);
+        ce_loss += 0 - log(exp(preds[labels[p] + p * units]) / esum);
 
         for (int i = 0; i < units; i++)
         {
             // preds[i+p*units]
-            if (labels[p] == i) {
-                delta_preds[i] += exp(preds[i+p*units]) / esum - 1;
-            }else {
-                delta_preds[i] += exp(preds[i+p*units]) / esum;
-            } 
+            if (labels[p] == i)
+            {
+                delta_preds[i] += exp(preds[i + p * units]) / esum - 1;
+            }
+            else
+            {
+                delta_preds[i] += exp(preds[i + p * units]) / esum;
+            }
         }
     }
     ce_loss /= BATCH_SIZE;
@@ -57,15 +61,14 @@ static void cross_entropy_loss(float *delta_preds, const float *preds, const int
         delta_preds[i] /= BATCH_SIZE;
 }
 
-
-static float v_conv1_weights[C1_CHANNELS*IN_CHANNELS*C1_KERNEL_L*C1_KERNEL_L];
-static float v_conv2_weights[C2_CHANNELS*C1_CHANNELS*C2_KERNEL_L*C2_KERNEL_L];
-static float v_conv3_weights[C3_CHANNELS*C2_CHANNELS*C3_KERNEL_L*C3_KERNEL_L];
-static float v_conv4_weights[C4_CHANNELS*C3_CHANNELS*C4_KERNEL_L*C4_KERNEL_L];
-static float v_conv5_weights[C5_CHANNELS*C4_CHANNELS*C5_KERNEL_L*C5_KERNEL_L];
-static float v_fc1_weights[C5_CHANNELS*FC6_LAYER*POOLING5_L*POOLING5_L];
-static float v_fc2_weights[FC6_LAYER*FC7_LAYER];
-static float v_fc3_weights[FC7_LAYER*OUT_LAYER];
+static float v_conv1_weights[C1_CHANNELS * IN_CHANNELS * C1_KERNEL_L * C1_KERNEL_L];
+static float v_conv2_weights[C2_CHANNELS * C1_CHANNELS * C2_KERNEL_L * C2_KERNEL_L];
+static float v_conv3_weights[C3_CHANNELS * C2_CHANNELS * C3_KERNEL_L * C3_KERNEL_L];
+static float v_conv4_weights[C4_CHANNELS * C3_CHANNELS * C4_KERNEL_L * C4_KERNEL_L];
+static float v_conv5_weights[C5_CHANNELS * C4_CHANNELS * C5_KERNEL_L * C5_KERNEL_L];
+static float v_fc1_weights[C5_CHANNELS * FC6_LAYER * POOLING5_L * POOLING5_L];
+static float v_fc2_weights[FC6_LAYER * FC7_LAYER];
+static float v_fc3_weights[FC7_LAYER * OUT_LAYER];
 
 static float v_conv1_bias[C1_CHANNELS];
 static float v_conv2_bias[C2_CHANNELS];
@@ -76,17 +79,16 @@ static float v_fc1_bias[FC6_LAYER];
 static float v_fc2_bias[FC7_LAYER];
 static float v_fc3_bias[OUT_LAYER];
 
-static float v_bn1_gamma[C1_CHANNELS*FEATURE1_L*FEATURE1_L];
-static float v_bn2_gamma[C2_CHANNELS*FEATURE2_L*FEATURE2_L];
-static float v_bn3_gamma[C3_CHANNELS*FEATURE3_L*FEATURE3_L];
-static float v_bn4_gamma[C4_CHANNELS*FEATURE4_L*FEATURE4_L];
-static float v_bn5_gamma[C5_CHANNELS*FEATURE5_L*FEATURE5_L];
-static float v_bn1_beta[C1_CHANNELS*FEATURE1_L*FEATURE1_L];
-static float v_bn2_beta[C2_CHANNELS*FEATURE2_L*FEATURE2_L];
-static float v_bn3_beta[C3_CHANNELS*FEATURE3_L*FEATURE3_L];
-static float v_bn4_beta[C4_CHANNELS*FEATURE4_L*FEATURE4_L];
-static float v_bn5_beta[C5_CHANNELS*FEATURE5_L*FEATURE5_L];
-
+static float v_bn1_gamma[C1_CHANNELS * FEATURE1_L * FEATURE1_L];
+static float v_bn2_gamma[C2_CHANNELS * FEATURE2_L * FEATURE2_L];
+static float v_bn3_gamma[C3_CHANNELS * FEATURE3_L * FEATURE3_L];
+static float v_bn4_gamma[C4_CHANNELS * FEATURE4_L * FEATURE4_L];
+static float v_bn5_gamma[C5_CHANNELS * FEATURE5_L * FEATURE5_L];
+static float v_bn1_beta[C1_CHANNELS * FEATURE1_L * FEATURE1_L];
+static float v_bn2_beta[C2_CHANNELS * FEATURE2_L * FEATURE2_L];
+static float v_bn3_beta[C3_CHANNELS * FEATURE3_L * FEATURE3_L];
+static float v_bn4_beta[C4_CHANNELS * FEATURE4_L * FEATURE4_L];
+static float v_bn5_beta[C5_CHANNELS * FEATURE5_L * FEATURE5_L];
 
 static inline void CLIP(float *x, float down, float up)
 {
@@ -97,7 +99,7 @@ static void momentum_sgd(float *w, float *v_w, float *d_w, int units)
 {
     /**
      * momentum stochastic gradient descent
-     * 
+     *
      * Input:
      *      w   [units]
      *      v_w [units]
@@ -105,63 +107,62 @@ static void momentum_sgd(float *w, float *v_w, float *d_w, int units)
      * Output:
      *      w   [units]
      *      v_w [units]
-     * */     
+     * */
     for (int i = 0; i < units; i++)
     {
         v_w[i] = 0.2 * v_w[i] - 0.8 * LEARNING_RATE * d_w[i];
-        CLIP(v_w+i, -1, 1);
+        CLIP(v_w + i, -1, 1);
         w[i] = w[i] + v_w[i];
     }
 }
 
-
 static void gradient_descent_a(void *argv)
 {
     alexnet *net = (alexnet *)argv;
-    momentum_sgd(net->fc1.weights, v_fc1_weights, net->fc1.d_weights, C5_CHANNELS*FC6_LAYER*POOLING5_L*POOLING5_L);
+    momentum_sgd(net->fc1.weights, v_fc1_weights, net->fc1.d_weights, C5_CHANNELS * FC6_LAYER * POOLING5_L * POOLING5_L);
 }
 
 static void gradient_descent_b(void *argv)
 {
     alexnet *net = (alexnet *)argv;
-    momentum_sgd(net->fc2.weights, v_fc2_weights, net->fc2.d_weights, FC6_LAYER*FC7_LAYER);
+    momentum_sgd(net->fc2.weights, v_fc2_weights, net->fc2.d_weights, FC6_LAYER * FC7_LAYER);
 }
 
 static void gradient_descent_c(void *argv)
 {
     alexnet *net = (alexnet *)argv;
-    momentum_sgd(net->fc3.weights, v_fc3_weights, net->fc3.d_weights, FC7_LAYER*OUT_LAYER);
+    momentum_sgd(net->fc3.weights, v_fc3_weights, net->fc3.d_weights, FC7_LAYER * OUT_LAYER);
 }
 
 static void gradient_descent_d(void *argv)
 {
     alexnet *net = (alexnet *)argv;
 
-    momentum_sgd(net->conv1.weights, v_conv1_weights, net->conv1.d_weights, C1_CHANNELS*IN_CHANNELS*C1_KERNEL_L*C1_KERNEL_L);
-    momentum_sgd(net->conv2.weights, v_conv2_weights, net->conv2.d_weights, C2_CHANNELS*C1_CHANNELS*C2_KERNEL_L*C2_KERNEL_L);
-    momentum_sgd(net->conv3.weights, v_conv3_weights, net->conv3.d_weights, C3_CHANNELS*C2_CHANNELS*C3_KERNEL_L*C3_KERNEL_L);
-    momentum_sgd(net->conv4.weights, v_conv4_weights, net->conv4.d_weights, C4_CHANNELS*C3_CHANNELS*C4_KERNEL_L*C4_KERNEL_L);
-    momentum_sgd(net->conv5.weights, v_conv5_weights, net->conv5.d_weights, C5_CHANNELS*C4_CHANNELS*C5_KERNEL_L*C5_KERNEL_L);
+    momentum_sgd(net->conv1.weights, v_conv1_weights, net->conv1.d_weights, C1_CHANNELS * IN_CHANNELS * C1_KERNEL_L * C1_KERNEL_L);
+    momentum_sgd(net->conv2.weights, v_conv2_weights, net->conv2.d_weights, C2_CHANNELS * C1_CHANNELS * C2_KERNEL_L * C2_KERNEL_L);
+    momentum_sgd(net->conv3.weights, v_conv3_weights, net->conv3.d_weights, C3_CHANNELS * C2_CHANNELS * C3_KERNEL_L * C3_KERNEL_L);
+    momentum_sgd(net->conv4.weights, v_conv4_weights, net->conv4.d_weights, C4_CHANNELS * C3_CHANNELS * C4_KERNEL_L * C4_KERNEL_L);
+    momentum_sgd(net->conv5.weights, v_conv5_weights, net->conv5.d_weights, C5_CHANNELS * C4_CHANNELS * C5_KERNEL_L * C5_KERNEL_L);
 
-    momentum_sgd(net->conv1.bias,   v_conv1_bias,   net->conv1.d_bias, C1_CHANNELS);
-    momentum_sgd(net->conv2.bias,   v_conv2_bias,   net->conv2.d_bias, C2_CHANNELS);
-    momentum_sgd(net->conv3.bias,   v_conv3_bias,   net->conv3.d_bias, C3_CHANNELS);
-    momentum_sgd(net->conv4.bias,   v_conv4_bias,   net->conv4.d_bias, C4_CHANNELS);
-    momentum_sgd(net->conv5.bias,   v_conv5_bias,   net->conv5.d_bias, C5_CHANNELS);
-    momentum_sgd(net->fc1.bias,     v_fc1_bias,     net->fc1.d_bias,   FC6_LAYER);
-    momentum_sgd(net->fc2.bias,     v_fc2_bias,     net->fc2.d_bias,   FC7_LAYER);
-    momentum_sgd(net->fc3.bias,     v_fc3_bias,     net->fc3.d_bias,   OUT_LAYER);
+    momentum_sgd(net->conv1.bias, v_conv1_bias, net->conv1.d_bias, C1_CHANNELS);
+    momentum_sgd(net->conv2.bias, v_conv2_bias, net->conv2.d_bias, C2_CHANNELS);
+    momentum_sgd(net->conv3.bias, v_conv3_bias, net->conv3.d_bias, C3_CHANNELS);
+    momentum_sgd(net->conv4.bias, v_conv4_bias, net->conv4.d_bias, C4_CHANNELS);
+    momentum_sgd(net->conv5.bias, v_conv5_bias, net->conv5.d_bias, C5_CHANNELS);
+    momentum_sgd(net->fc1.bias, v_fc1_bias, net->fc1.d_bias, FC6_LAYER);
+    momentum_sgd(net->fc2.bias, v_fc2_bias, net->fc2.d_bias, FC7_LAYER);
+    momentum_sgd(net->fc3.bias, v_fc3_bias, net->fc3.d_bias, OUT_LAYER);
 
-    momentum_sgd(net->bn1.gamma,     v_bn1_gamma,     net->bn1.d_gamma,   OUT_LAYER);
-    momentum_sgd(net->bn1.gamma,     v_bn1_gamma,     net->bn1.d_gamma,   OUT_LAYER);
-    momentum_sgd(net->bn1.gamma,     v_bn1_gamma,     net->bn1.d_gamma,   OUT_LAYER);
-    momentum_sgd(net->bn1.gamma,     v_bn1_gamma,     net->bn1.d_gamma,   OUT_LAYER);
-    momentum_sgd(net->bn1.gamma,     v_bn1_gamma,     net->bn1.d_gamma,   OUT_LAYER);
-    momentum_sgd(net->bn1.beta,     v_bn1_beta,     net->bn1.d_beta,   OUT_LAYER);
-    momentum_sgd(net->bn1.beta,     v_bn1_beta,     net->bn1.d_beta,   OUT_LAYER);
-    momentum_sgd(net->bn1.beta,     v_bn1_beta,     net->bn1.d_beta,   OUT_LAYER);
-    momentum_sgd(net->bn1.beta,     v_bn1_beta,     net->bn1.d_beta,   OUT_LAYER);
-    momentum_sgd(net->bn1.beta,     v_bn1_beta,     net->bn1.d_beta,   OUT_LAYER);
+    momentum_sgd(net->bn1.gamma, v_bn1_gamma, net->bn1.d_gamma, OUT_LAYER);
+    momentum_sgd(net->bn1.gamma, v_bn1_gamma, net->bn1.d_gamma, OUT_LAYER);
+    momentum_sgd(net->bn1.gamma, v_bn1_gamma, net->bn1.d_gamma, OUT_LAYER);
+    momentum_sgd(net->bn1.gamma, v_bn1_gamma, net->bn1.d_gamma, OUT_LAYER);
+    momentum_sgd(net->bn1.gamma, v_bn1_gamma, net->bn1.d_gamma, OUT_LAYER);
+    momentum_sgd(net->bn1.beta, v_bn1_beta, net->bn1.d_beta, OUT_LAYER);
+    momentum_sgd(net->bn1.beta, v_bn1_beta, net->bn1.d_beta, OUT_LAYER);
+    momentum_sgd(net->bn1.beta, v_bn1_beta, net->bn1.d_beta, OUT_LAYER);
+    momentum_sgd(net->bn1.beta, v_bn1_beta, net->bn1.d_beta, OUT_LAYER);
+    momentum_sgd(net->bn1.beta, v_bn1_beta, net->bn1.d_beta, OUT_LAYER);
 }
 
 static void gradient_descent(alexnet *net)
@@ -176,7 +177,6 @@ static void gradient_descent(alexnet *net)
     pthread_join(tid[2], NULL);
     pthread_join(tid[3], NULL);
 }
-
 
 void calloc_alexnet_d_params(alexnet *net)
 {
@@ -217,7 +217,7 @@ void backward_alexnet(alexnet *net, int *batch_Y)
 {
     /**
      * alexnet backward
-     * 
+     *
      * Input:
      *      net:      our network
      *      batch_Y:  labels of images
@@ -314,12 +314,12 @@ void backward_alexnet(alexnet *net, int *batch_Y)
     batch_norm_op_backward(&(net->bn5));
     free(net->bn5.d_output);
     free(net->bn5.output);
-    for(int i=0; i< net->bn5.units; i++)
+    for (int i = 0; i < net->bn5.units; i++)
     {
-        if(net->bn5.d_input[i] > 4)
+        if (net->bn5.d_input[i] > 4)
         {
-            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!! bn5  %f\n",net->bn5.d_input[i]);
-            exit(-1);            
+            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!! bn5  %f\n", net->bn5.d_input[i]);
+            exit(-1);
             break;
         }
     }
@@ -367,12 +367,12 @@ void backward_alexnet(alexnet *net, int *batch_Y)
     printf(" backward (&(net->bn4)) duration: %.4fs \n", duration);
 #endif
 
-    for(int i=0; i< net->bn4.units; i++)
+    for (int i = 0; i < net->bn4.units; i++)
     {
-        if(net->bn4.d_input[i] > 4)
+        if (net->bn4.d_input[i] > 4)
         {
-            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!! bn4  %f\n",net->bn4.d_input[i]);
-            exit(-1);            
+            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!! bn4  %f\n", net->bn4.d_input[i]);
+            exit(-1);
             break;
         }
     }
@@ -413,11 +413,11 @@ void backward_alexnet(alexnet *net, int *batch_Y)
     printf(" backward (&(net->bn3)) duration: %.4fs \n", duration);
 #endif
 
-    for(int i=0; i< net->bn3.units; i++)
+    for (int i = 0; i < net->bn3.units; i++)
     {
-        if(net->bn3.d_input[i] > 4)
+        if (net->bn3.d_input[i] > 4)
         {
-            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!! bn3  %f\n",net->bn3.d_input[i]);
+            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!! bn3  %f\n", net->bn3.d_input[i]);
             break;
         }
     }
@@ -437,12 +437,12 @@ void backward_alexnet(alexnet *net, int *batch_Y)
     printf(" backward (&(net->conv3)) duration: %.4fs \n", duration);
 #endif
 
-    for(int i=0; i< net->conv3.in_units; i++)
+    for (int i = 0; i < net->conv3.in_units; i++)
     {
-        if(net->conv3.d_input[i] > 4)
+        if (net->conv3.d_input[i] > 4)
         {
-            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!! conv3  %f\n",net->conv3.d_input[i]);
-            //exit(-1);            
+            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!! conv3  %f\n", net->conv3.d_input[i]);
+            // exit(-1);
             break;
         }
     }
@@ -483,12 +483,12 @@ void backward_alexnet(alexnet *net, int *batch_Y)
     printf(" backward (&(net->bn2)) duration: %.4fs \n", duration);
 #endif
 
-    for(int i=0; i< net->bn2.units; i++)
+    for (int i = 0; i < net->bn2.units; i++)
     {
-        if(net->bn2.d_input[i] > 4)
+        if (net->bn2.d_input[i] > 4)
         {
-            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!! bn2  %f\n",net->bn2.d_input[i]);
-            //exit(-1);            
+            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!! bn2  %f\n", net->bn2.d_input[i]);
+            // exit(-1);
             break;
         }
     }
@@ -544,12 +544,12 @@ void backward_alexnet(alexnet *net, int *batch_Y)
     printf(" backward (&(net->bn1)) duration: %.4fs \n", duration);
 #endif
 
-    for(int i=0; i< net->bn1.units; i++)
+    for (int i = 0; i < net->bn1.units; i++)
     {
-        if(net->bn1.d_input[i] > 4)
+        if (net->bn1.d_input[i] > 4)
         {
-            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!! bn1  %f\n",net->bn1.d_input[i]);
-            //exit(-1);            
+            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!! bn1  %f\n", net->bn1.d_input[i]);
+            // exit(-1);
             break;
         }
     }
@@ -584,28 +584,28 @@ void backward_alexnet(alexnet *net, int *batch_Y)
     free_alexnet_d_params(net);
 }
 
-
 void alexnet_train(alexnet *net, int epochs)
 {
 
-    net->input   = (float *)malloc(net->batchsize * net->conv1.in_channels * net->conv1.in_w * net->conv1.in_h * sizeof(float));
-    int *batch_Y = (int   *)malloc(net->batchsize * sizeof(int));
+    net->input = (float *)malloc(net->batchsize * net->conv1.in_channels * net->conv1.in_w * net->conv1.in_h * sizeof(float));
+    int *batch_Y = (int *)malloc(net->batchsize * sizeof(int));
     int preds[net->fc3.out_units];
     FILE *fp = fopen("./images.list", "r");
 
     printf("\n\n>>>>>>>>>>>>>>>>>>>>>>>>>>> training begin >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n");
-    struct timespec start, finish; float duration;
-    for (int e = 0;e < epochs; e++)
+    struct timespec start, finish;
+    float duration;
+    for (int e = 0; e < epochs; e++)
     {
-        printf("-----------------------------%d---------------------------------\n", e+1);
+        printf("-----------------------------%d---------------------------------\n", e + 1);
         //
         // >>>>>load data<<<<<
         // batch_X <-- images
-        // batch_Y <-- labels 
+        // batch_Y <-- labels
         //
-        get_next_batch(net->batchsize, net->input, batch_Y, 
-                        net->conv1.in_w, net->conv1.in_h, net->conv1.in_channels, net->fc3.out_units, fp);
-        
+        get_next_batch(net->batchsize, net->input, batch_Y,
+                       net->conv1.in_w, net->conv1.in_h, net->conv1.in_channels, net->fc3.out_units, fp);
+
         clock_gettime(CLOCK_MONOTONIC, &start);
         forward_alexnet(net);
         clock_gettime(CLOCK_MONOTONIC, &finish);
@@ -633,7 +633,7 @@ void alexnet_train(alexnet *net, int epochs)
         duration = (finish.tv_sec - start.tv_sec);
         duration += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
         printf("backward_alexnet duration: %.4fs \n", duration);
-        printf("-----------------------------%d---------------------------------\n", e+1);
+        printf("-----------------------------%d---------------------------------\n", e + 1);
     }
     printf(">>>>>>>>>>>>>>>>>>>>>>>>>>> training end >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n\n");
 

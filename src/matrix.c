@@ -5,10 +5,11 @@
 //
 #include <stdlib.h>
 #include <string.h>
-#include <immintrin.h>
+// #include <immintrin.h>
+#include <arm_neon.h>
 
 /*
-// 
+//
 // SIMD
 //
 void matrix_multiply(const float *a, const float *b, float *c, const int M, const int N, const int K)
@@ -28,20 +29,20 @@ void matrix_multiply(const float *a, const float *b, float *c, const int M, cons
             while(c_offset%4!=0)
             {
                 c_offset--;
-            } 
+            }
             while(b_offset%4!=0)
             {
                 b_offset--;
-            } 
+            }
             while(c_offset<(i+1)*K-4)
             {
-                __m128  ma=zero+apart;  
-                __m128  mb;  
-                __m128  mc;  
-                mb = _mm_load_ps(b+b_offset);  
-                mc = _mm_load_ps(c+c_offset);           
+                __m128  ma=zero+apart;
+                __m128  mb;
+                __m128  mc;
+                mb = _mm_load_ps(b+b_offset);
+                mc = _mm_load_ps(c+c_offset);
                 mc = _mm_add_ps(mc, _mm_mul_ps(ma, mb));
-                _mm_store_ps(c+c_offset, mc); 
+                _mm_store_ps(c+c_offset, mc);
                 c_offset+=4;
                 b_offset+=4;
             }
@@ -61,14 +62,14 @@ void matrix_multiply(const float *a, const float *b, float *c, const int M, cons
 {
     /**
      * matrix multiply, c = a * b
-     * 
+     *
      * Input:
      * a    [M,N]
      * b    [N,K]
      * Output:
      * c    [M,K]
      * */
-    register int i,j,p;
+    register int i, j, p;
     register float *a_ptr = a;
     for (i = 0; i < M; i++)
     {
@@ -76,9 +77,9 @@ void matrix_multiply(const float *a, const float *b, float *c, const int M, cons
         for (j = 0; j < N; j++)
         {
             register float apart = *(a_ptr++);
-            if (apart<0.00001 && apart>(0-0.00001))
+            if (apart < 0.00001 && apart > (0 - 0.00001))
                 continue;
-            register float *c_ptr = c + i*K;
+            register float *c_ptr = c + i * K;
             for (p = 0; p < K; p++)
                 *(c_ptr++) += *(b_ptr++) * apart;
         }
@@ -88,20 +89,20 @@ void matrix_multiply(const float *a, const float *b, float *c, const int M, cons
 matrix_transpose(float *x, int m, int n)
 {
     /** matrix transpose
-     * 
+     *
      * Input:
      *      x[m,n]
      * Output:
      *      x[n,m]
      * */
-    float *tmp = (float *)malloc(m*n*sizeof(float));
+    float *tmp = (float *)malloc(m * n * sizeof(float));
     register int i, j;
     register float *ptr = x;
     for (i = 0; i < m; i++)
     {
         for (j = 0; j < n; j++)
-            tmp[j*m+i] = *(ptr++);
+            tmp[j * m + i] = *(ptr++);
     }
-    memcpy(x, tmp, m*n*sizeof(float));
+    memcpy(x, tmp, m * n * sizeof(float));
     free(tmp);
 }

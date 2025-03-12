@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "atomic": "c",
+        "cstring": "c",
+        "__string": "c",
+        "memory": "c"
+    }
+}
