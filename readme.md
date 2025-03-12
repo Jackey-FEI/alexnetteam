@@ -8,6 +8,9 @@ This project is an unofficial implementation of AlexNet, using C Program Languag
 
 **Only support CPU now**
 
+**Get compressed data in the below link** </br>
+https://drive.google.com/drive/folders/19Qxg4PVzrO-PVLo_Oh8sTNylTLBr5fC7?usp=sharing
+
 ## Features
 
 - **Effective matrix multiply**, w.r.t L1/L2 cache
