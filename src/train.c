@@ -14,7 +14,7 @@
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
-#define LEARNING_RATE 0.001
+#define LEARNING_RATE 0.00001
 
 static struct timespec start, finish;
 static float duration;
@@ -589,7 +589,7 @@ void alexnet_train(alexnet *net, int epochs)
 
     net->input = (float *)malloc(net->batchsize * net->conv1.in_channels * net->conv1.in_w * net->conv1.in_h * sizeof(float));
     int *batch_Y = (int *)malloc(net->batchsize * sizeof(int));
-    int preds[net->fc3.out_units];
+    int preds[net->batchsize];
     FILE *fp = fopen("./images.list", "r");
     struct timespec p_start, p_finish;
     clock_gettime(CLOCK_MONOTONIC, &p_start);
@@ -627,8 +627,9 @@ void alexnet_train(alexnet *net, int epochs)
             printf("%d ", batch_Y[i]);
         printf("]\n");
 #endif
-        // float metric;
-        // metrics(&metric, preds, batch_Y, OUT_LAYER, net->batchsize, METRIC_ACCURACY);
+        float metric;
+        metrics(&metric, preds, batch_Y, OUT_LAYER, net->batchsize, METRIC_ACCURACY);
+        printf("accuracy: %.4f\n", metric);
         clock_gettime(CLOCK_MONOTONIC, &start);
         backward_alexnet(net, batch_Y);
         clock_gettime(CLOCK_MONOTONIC, &finish);

@@ -15,9 +15,8 @@
 #include "dropout_layer.h"
 
 #define SHOW_PREDCITION_DETAIL
-//#define SHOW_METRIC_EVALUTE
-//#define SHOW_OP_TIME
-
+// #define SHOW_METRIC_EVALUTE
+// #define SHOW_OP_TIME
 
 //
 //  Definition of model shape
@@ -57,18 +56,18 @@
 #define FEATURE5_L 13
 #define POOLING5_L 6
 
-#define FC6_LAYER   4096
-#define FC7_LAYER   4096
-#define OUT_LAYER   1000
-#define DROPOUT_PROB  0.4
+#define FC6_LAYER 4096
+#define FC7_LAYER 4096
+#define OUT_LAYER 10
+#define DROPOUT_PROB 0.4
 
-
-typedef struct network {
+typedef struct network
+{
 
     float *input;
     float *output;
     short batchsize;
-    
+
     conv_op conv1;
     batch_norm_op bn1;
     nonlinear_op relu1;
@@ -104,20 +103,18 @@ typedef struct network {
     fc_op fc3;
 } alexnet;
 
-
 //
 //  Definiation of metric type
 //
-#define METRIC_ACCURACY  0
-#define METRIC_PRECISION 1      // macro-precision
-#define METRIC_RECALL    2      // macro-recall
-#define METRIC_F1SCORE   3
-#define METRIC_ROC       4
+#define METRIC_ACCURACY 0
+#define METRIC_PRECISION 1 // macro-precision
+#define METRIC_RECALL 2    // macro-recall
+#define METRIC_F1SCORE 3
+#define METRIC_ROC 4
 
-void metrics(float *ret, int *preds, int *labels, 
-                int classes, int TotalNum, int type);
+void metrics(float *ret, int *preds, int *labels,
+             int classes, int TotalNum, int type);
 int argmax(float *arr, int n);
-
 
 void malloc_alexnet(alexnet *net);
 void free_alexnet(alexnet *net);
