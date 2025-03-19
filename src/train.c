@@ -14,7 +14,7 @@
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
-#define LEARNING_RATE 0.00001
+#define LEARNING_RATE 0.01
 
 static struct timespec start, finish;
 static float duration;
@@ -37,14 +37,14 @@ static void cross_entropy_loss(float *delta_preds, const float *preds, const int
         for (int i = 0; i < units; i++)
             esum += exp(preds[i + p * units]);
 
-        ce_loss += 0 - log(exp(preds[labels[p] + p * units]) / esum);
+        ce_loss += -log(exp(preds[labels[p] + p * units]) / esum);
 
         for (int i = 0; i < units; i++)
         {
             // preds[i+p*units]
             if (labels[p] == i)
             {
-                delta_preds[i] += exp(preds[i + p * units]) / esum - 1;
+                delta_preds[i] += (exp(preds[i + p * units]) / esum - 1);
             }
             else
             {
@@ -54,11 +54,13 @@ static void cross_entropy_loss(float *delta_preds, const float *preds, const int
     }
     ce_loss /= BATCH_SIZE;
     printf("cross entropy loss on batch data is %f \n", ce_loss);
-    return;
+    // return;
 
     // whether to use it ?
     for (int i = 0; i < units; i++)
         delta_preds[i] /= BATCH_SIZE;
+
+    return;
 }
 
 static float v_conv1_weights[C1_CHANNELS * IN_CHANNELS * C1_KERNEL_L * C1_KERNEL_L];
@@ -615,8 +617,13 @@ void alexnet_train(alexnet *net, int epochs)
         duration += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
         printf("forward_alexnet duration: %.4fs \n", duration);
 
-        for (int i = 0; i < net->batchsize; i++)
+        for (int i = 0; i < net->batchsize; i++) {
+            // for(int k = 0; k < net->fc3.out_units; k++) {
+            //     printf("%.4f ", *(net->output + i * net->fc3.out_units + k));
+            // }
+            // printf("\n");s
             preds[i] = argmax(net->output + i * net->fc3.out_units, net->fc3.out_units);
+        }
 
 #ifdef SHOW_PREDCITION_DETAIL
         printf("pred[ ");
