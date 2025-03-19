@@ -1,36 +1,32 @@
 import os
 
-# Define the root directory of the Tiny ImageNet dataset
-dataset_root = './imagenette2'
-dest_root = './'
+# Define the path to the imagenette2 dataset
+base_path = './imagenette2'
 
-# Load wnids and create a mapping to class_ids
-wnids_file = os.path.join(dataset_root, 'wnids.txt')
-with open(wnids_file, 'r') as f:
-    wnids = [line.strip() for line in f.readlines()]
-wnid_to_class_id = {wnid: idx for idx, wnid in enumerate(wnids)}
+# Open a file to write the output
+output_file = 'images.list'
 
-# Function to write image paths and class_ids to images.list
-def write_images_list(split):
-    images_list_path = os.path.join(dest_root, f'{split}_images.list')
-    with open(images_list_path, 'w') as file:
-        if split == 'train':
-            for wnid in wnids:
-                class_id = wnid_to_class_id[wnid]
-                train_images_dir = os.path.join(dataset_root, 'train', wnid)
-                for image_name in os.listdir(train_images_dir):
-                    image_path = os.path.join(train_images_dir, image_name)
-                    file.write(f'{class_id} {image_path}\n')
-        # elif split == 'val':
-        #     val_images_dir = os.path.join(dataset_root, 'val', wnid)
-        #     val_annotations_file = os.path.join(dataset_root, 'val', 'val_annotations.txt')
-        #     with open(val_annotations_file, 'r') as f:
-        #         for line in f:
-        #             image_name, wnid = line.split('\t')[:2]
-        #             class_id = wnid_to_class_id[wnid]
-        #             image_path = os.path.join(val_images_dir, image_name)
-        #             file.write(f'{class_id} {image_path}\n')
+# Open the output file in write mode
+with open(output_file, 'w') as f:
+    # Iterate through the train folder and the subfolders
+    train_path = os.path.join(base_path, 'train')
+    
+    idx = 0
+    # Iterate through each class folder (e.g., 'n02102040')
+    for class_folder in os.listdir(train_path):
+        class_folder_path = os.path.join(train_path, class_folder)
+        
+        # Ensure we're dealing with a directory
+        if os.path.isdir(class_folder_path):
+            # Iterate through each image file in the class folder
+            for image_name in os.listdir(class_folder_path):
+                image_path = os.path.join(class_folder_path, image_name)
+                
+                # Make sure it's a file (in case there are subfolders or non-image files)
+                if os.path.isfile(image_path):
+                    # Write the index and image path to the file
+                    # f.write(f"{idx} .\\imagenette2\\train\\{class_folder}\\{image_name}\n")
+                    f.write(f"{idx} ./imagenette2/train/{class_folder}/{image_name}\n")
+            idx += 1
 
-# Generate images.list for training and validation sets
-write_images_list('train')
-# write_images_list('val')
+print(f"Image paths have been written to {output_file}")

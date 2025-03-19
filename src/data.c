@@ -120,7 +120,6 @@ void resize_image(image *im, int w, int h)
 
     memcpy(im, &resized, sizeof(image));
     free_image(&part);
-    free_image(&resized);
 }
 
 image load_image(char *filename, int W, int H, int channels, int is_h_flip)
@@ -225,13 +224,18 @@ void get_next_batch(int n, float *X, int *Y,
     image img; 
     make_image(&img, w, h, c);
     int label,idx;
-    char imgpath[256];
+    char* imgpath = NULL;
+    size_t len = 0;
     int imagesize = w*h*c;
     for(int i=0; i<n; i++)
     {
-        if(feof(fp)) 
-            rewind(fp);
-        fscanf(fp, "%d %s", &label, imgpath);
+        ssize_t read = getline(&imgpath, &len, fp);
+        
+        if (read == -1) {
+            printf("Error reading file\n");
+            exit(1);
+        }
+        sscanf(imgpath, "%d %s", &label, imgpath);
 
         Y[i] = label;
         img = load_image(imgpath, w, h, c, 0);

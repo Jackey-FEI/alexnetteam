@@ -589,7 +589,7 @@ void alexnet_train(alexnet *net, int epochs)
 
     net->input = (float *)malloc(net->batchsize * net->conv1.in_channels * net->conv1.in_w * net->conv1.in_h * sizeof(float));
     int *batch_Y = (int *)malloc(net->batchsize * sizeof(int));
-    int preds[net->batchsize];
+    int preds[net->fc3.batchsize];
     FILE *fp = fopen("./images.list", "r");
     struct timespec p_start, p_finish;
     clock_gettime(CLOCK_MONOTONIC, &p_start);

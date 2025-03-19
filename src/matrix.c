@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 // #include <immintrin.h>
-#include <arm_neon.h>
 
 /*
 //
