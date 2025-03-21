@@ -275,7 +275,7 @@ void forward_alexnet(alexnet *net)
     clock_gettime(CLOCK_MONOTONIC, &start);
 #endif
     net->conv5.output = (float *)calloc(net->batchsize * net->conv5.out_units, sizeof(float));
-    net->conv5.input = net->relu4.output;
+    net->conv5.input = net->relu4.output; // net->mp2.output;
     conv_op_forward(&(net->conv5));
 #ifdef SHOW_OP_TIME
     clock_gettime(CLOCK_MONOTONIC, &finish);
@@ -330,7 +330,7 @@ void forward_alexnet(alexnet *net)
     clock_gettime(CLOCK_MONOTONIC, &start);
 #endif
     net->fc2.output = (float *)calloc(net->batchsize * net->fc2.out_units, sizeof(float));
-    net->fc2.input = net->fc1.output;
+    net->fc2.input = net->relu6.output;
     fc_op_forward(&(net->fc2));
 #ifdef SHOW_OP_TIME
     clock_gettime(CLOCK_MONOTONIC, &finish);
@@ -352,11 +352,19 @@ void forward_alexnet(alexnet *net)
     net->relu7.input = net->fc2.output;
     relu_op_forward(&(net->relu7));
 
+    net->fc4.output = (float *)malloc(net->batchsize * sizeof(float) * net->fc4.out_units);
+    net->fc4.input = net->relu7.output;
+    fc_op_forward(&(net->fc4));
+
+    net->relu8.output = (float *)malloc(net->batchsize * sizeof(float) * net->relu8.units);
+    net->relu8.input = net->fc4.output;
+    relu_op_forward(&(net->relu8));
+
 #ifdef SHOW_OP_TIME
     clock_gettime(CLOCK_MONOTONIC, &start);
 #endif
     net->fc3.output = (float *)calloc(net->batchsize * net->fc3.out_units, sizeof(float));
-    net->fc3.input = net->fc2.output;
+    net->fc3.input = net->relu8.output; // net->relu7.output;
     fc_op_forward(&(net->fc3));
 #ifdef SHOW_OP_TIME
     clock_gettime(CLOCK_MONOTONIC, &finish);
@@ -378,7 +386,7 @@ void malloc_alexnet(alexnet *net)
     calloc_fc_weights(&(net->fc1));
     calloc_fc_weights(&(net->fc2));
     calloc_fc_weights(&(net->fc3));
-
+    calloc_fc_weights(&(net->fc4));
     calloc_batchnorm_weights(&(net->bn1));
     calloc_batchnorm_weights(&(net->bn2));
     calloc_batchnorm_weights(&(net->bn3));
@@ -396,7 +404,7 @@ void free_alexnet(alexnet *net)
     free_fc_weights(&(net->fc1));
     free_fc_weights(&(net->fc2));
     free_fc_weights(&(net->fc3));
-
+    free_fc_weights(&(net->fc4));
     free_batchnorm_weights(&(net->bn1));
     free_batchnorm_weights(&(net->bn2));
     free_batchnorm_weights(&(net->bn3));
@@ -460,6 +468,7 @@ void save_alexnet(alexnet *net, char *filename)
     save_fc_weights(&(net->fc1), fp);
     save_fc_weights(&(net->fc2), fp);
     save_fc_weights(&(net->fc3), fp);
+    save_fc_weights(&(net->fc4), fp);
     save_batchnorm_weights(&(net->bn1), fp);
     save_batchnorm_weights(&(net->bn2), fp);
     save_batchnorm_weights(&(net->bn3), fp);
@@ -486,6 +495,7 @@ void load_alexnet(alexnet *net, char *filename)
     load_fc_weights(&(net->fc1), fp);
     load_fc_weights(&(net->fc2), fp);
     load_fc_weights(&(net->fc3), fp);
+    load_fc_weights(&(net->fc4), fp);
     load_batchnorm_weights(&(net->bn1), fp);
     load_batchnorm_weights(&(net->bn2), fp);
     load_batchnorm_weights(&(net->bn3), fp);
@@ -509,6 +519,7 @@ void setup_alexnet(alexnet *net, short batchsize)
     net->fc1.batchsize = batchsize;
     net->fc2.batchsize = batchsize;
     net->fc3.batchsize = batchsize;
+    net->fc4.batchsize = batchsize;
     net->bn1.batchsize = batchsize;
     net->bn2.batchsize = batchsize;
     net->bn3.batchsize = batchsize;
@@ -524,7 +535,7 @@ void setup_alexnet(alexnet *net, short batchsize)
     net->relu5.batchsize = batchsize;
     net->relu6.batchsize = batchsize;
     net->relu7.batchsize = batchsize;
-
+    net->relu8.batchsize = batchsize;
     net->conv1.in_channels = IN_CHANNELS;
     net->conv1.out_channels = C1_CHANNELS;
     net->conv1.in_h = FEATURE0_L;
@@ -645,6 +656,11 @@ void setup_alexnet(alexnet *net, short batchsize)
 
     net->relu7.units = FC7_LAYER;
 
+    net->fc4.in_units = FC7_LAYER;
+    net->fc4.out_units = FC7_LAYER;
+
+    net->relu8.units = FC7_LAYER;
+
     net->fc3.in_units = FC7_LAYER;
     net->fc3.out_units = OUT_LAYER;
 }
@@ -667,6 +683,7 @@ void alexnet_init_weights(alexnet *net, char *weights_path)
     gauss_initialization(net->fc1.weights, C5_CHANNELS * FC6_LAYER * POOLING5_L * POOLING5_L, net->fc1.in_units, net->fc1.out_units);
     gauss_initialization(net->fc2.weights, FC6_LAYER * FC7_LAYER, net->fc2.in_units, net->fc2.out_units);
     gauss_initialization(net->fc3.weights, FC7_LAYER * OUT_LAYER, net->fc3.in_units, net->fc3.out_units);
+    gauss_initialization(net->fc4.weights, FC7_LAYER * FC7_LAYER, net->fc4.in_units, net->fc4.out_units);
 
     int i;
     for (i = 0; i < C1_CHANNELS; i++)
@@ -685,6 +702,8 @@ void alexnet_init_weights(alexnet *net, char *weights_path)
         net->fc2.bias[i] = 1;
     for (i = 0; i < OUT_LAYER; i++)
         net->fc3.bias[i] = 1;
+    for (i = 0; i < FC7_LAYER; i++)
+        net->fc4.bias[i] = 1;
 
     for (i = 0; i < (net->bn1.units); i++)
         net->bn1.gamma[i] = 1;

@@ -14,7 +14,7 @@
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
-#define LEARNING_RATE 0.01
+#define LEARNING_RATE 0.005
 
 static struct timespec start, finish;
 static float duration;
@@ -71,7 +71,7 @@ static float v_conv5_weights[C5_CHANNELS * C4_CHANNELS * C5_KERNEL_L * C5_KERNEL
 static float v_fc1_weights[C5_CHANNELS * FC6_LAYER * POOLING5_L * POOLING5_L];
 static float v_fc2_weights[FC6_LAYER * FC7_LAYER];
 static float v_fc3_weights[FC7_LAYER * OUT_LAYER];
-
+static float v_fc4_weights[FC7_LAYER * FC7_LAYER];
 static float v_conv1_bias[C1_CHANNELS];
 static float v_conv2_bias[C2_CHANNELS];
 static float v_conv3_bias[C3_CHANNELS];
@@ -80,7 +80,7 @@ static float v_conv5_bias[C5_CHANNELS];
 static float v_fc1_bias[FC6_LAYER];
 static float v_fc2_bias[FC7_LAYER];
 static float v_fc3_bias[OUT_LAYER];
-
+static float v_fc4_bias[FC7_LAYER];
 static float v_bn1_gamma[C1_CHANNELS * FEATURE1_L * FEATURE1_L];
 static float v_bn2_gamma[C2_CHANNELS * FEATURE2_L * FEATURE2_L];
 static float v_bn3_gamma[C3_CHANNELS * FEATURE3_L * FEATURE3_L];
@@ -130,6 +130,12 @@ static void gradient_descent_b(void *argv)
     momentum_sgd(net->fc2.weights, v_fc2_weights, net->fc2.d_weights, FC6_LAYER * FC7_LAYER);
 }
 
+static void gradient_descent_e(void *argv)
+{
+    alexnet *net = (alexnet *)argv;
+    momentum_sgd(net->fc4.weights, v_fc4_weights, net->fc4.d_weights, FC7_LAYER * FC7_LAYER);
+}
+
 static void gradient_descent_c(void *argv)
 {
     alexnet *net = (alexnet *)argv;
@@ -154,6 +160,7 @@ static void gradient_descent_d(void *argv)
     momentum_sgd(net->fc1.bias, v_fc1_bias, net->fc1.d_bias, FC6_LAYER);
     momentum_sgd(net->fc2.bias, v_fc2_bias, net->fc2.d_bias, FC7_LAYER);
     momentum_sgd(net->fc3.bias, v_fc3_bias, net->fc3.d_bias, OUT_LAYER);
+    momentum_sgd(net->fc4.bias, v_fc4_bias, net->fc4.d_bias, FC7_LAYER);
 
     momentum_sgd(net->bn1.gamma, v_bn1_gamma, net->bn1.d_gamma, OUT_LAYER);
     momentum_sgd(net->bn1.gamma, v_bn1_gamma, net->bn1.d_gamma, OUT_LAYER);
@@ -169,15 +176,17 @@ static void gradient_descent_d(void *argv)
 
 static void gradient_descent(alexnet *net)
 {
-    pthread_t tid[4];
+    pthread_t tid[5];
     pthread_create(&tid[0], NULL, gradient_descent_a, (void *)(net));
     pthread_create(&tid[1], NULL, gradient_descent_b, (void *)(net));
     pthread_create(&tid[2], NULL, gradient_descent_c, (void *)(net));
     pthread_create(&tid[3], NULL, gradient_descent_d, (void *)(net));
+    pthread_create(&tid[4], NULL, gradient_descent_e, (void *)(net));
     pthread_join(tid[0], NULL);
     pthread_join(tid[1], NULL);
     pthread_join(tid[2], NULL);
     pthread_join(tid[3], NULL);
+    pthread_join(tid[4], NULL);
 }
 
 void calloc_alexnet_d_params(alexnet *net)
@@ -190,6 +199,7 @@ void calloc_alexnet_d_params(alexnet *net)
     calloc_fc_dweights(&(net->fc1));
     calloc_fc_dweights(&(net->fc2));
     calloc_fc_dweights(&(net->fc3));
+    calloc_fc_dweights(&(net->fc4));
     calloc_batchnorm_dweights(&(net->bn1));
     calloc_batchnorm_dweights(&(net->bn2));
     calloc_batchnorm_dweights(&(net->bn3));
@@ -207,7 +217,7 @@ void free_alexnet_d_params(alexnet *net)
     free_fc_dweights(&(net->fc1));
     free_fc_dweights(&(net->fc2));
     free_fc_dweights(&(net->fc3));
-
+    free_fc_dweights(&(net->fc4));
     free_batchnorm_dweights(&(net->bn1));
     free_batchnorm_dweights(&(net->bn2));
     free_batchnorm_dweights(&(net->bn3));
@@ -245,8 +255,28 @@ void backward_alexnet(alexnet *net, int *batch_Y)
     printf(" backward (&(net->fc3)) duration: %.4fs \n", duration);
 #endif
 
+    net->relu8.d_input = (float *)calloc(net->relu8.units, sizeof(float));
+    net->relu8.d_output = net->fc3.d_input;
+    relu_op_backward(&(net->relu8));
+    free(net->relu8.d_output);
+    free(net->relu8.output);
+
+#ifdef SHOW_OP_TIME
+    clock_gettime(CLOCK_MONOTONIC, &start);
+#endif
+    net->fc4.d_input = (float *)calloc(net->fc4.in_units, sizeof(float));
+    net->fc4.d_output = net->relu8.d_input;
+    fc_op_backward(&(net->fc4));
+    free(net->fc4.d_output);
+    free(net->fc4.output);
+#ifdef SHOW_OP_TIME
+    clock_gettime(CLOCK_MONOTONIC, &finish);
+    duration = (finish.tv_sec - start.tv_sec);
+    duration += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
+    printf(" backward (&(net->fc4)) duration: %.4fs \n", duration);
+#endif
     net->relu7.d_input = (float *)calloc(net->relu7.units, sizeof(float));
-    net->relu7.d_output = net->fc3.d_input;
+    net->relu7.d_output = net->fc4.d_input; // net->fc3.d_input;
     relu_op_backward(&(net->relu7));
     free(net->relu7.d_output);
     free(net->relu7.output);
@@ -453,7 +483,7 @@ void backward_alexnet(alexnet *net, int *batch_Y)
     clock_gettime(CLOCK_MONOTONIC, &start);
 #endif
     net->mp2.d_input = (float *)calloc(net->mp2.in_units, sizeof(float));
-    net->mp2.d_output = net->conv3.d_input;
+    net->mp2.d_output = net->conv3.d_input; // net->conv5.d_input;
     max_pooling_op_backward(&(net->mp2));
     free(net->mp2.d_output);
     free(net->mp2.output);
@@ -617,7 +647,8 @@ void alexnet_train(alexnet *net, int epochs)
         duration += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
         printf("forward_alexnet duration: %.4fs \n", duration);
 
-        for (int i = 0; i < net->batchsize; i++) {
+        for (int i = 0; i < net->batchsize; i++)
+        {
             // for(int k = 0; k < net->fc3.out_units; k++) {
             //     printf("%.4f ", *(net->output + i * net->fc3.out_units + k));
             // }

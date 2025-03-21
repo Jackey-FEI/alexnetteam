@@ -3,6 +3,7 @@
         "atomic": "c",
         "cstring": "c",
         "__string": "c",
-        "memory": "c"
+        "memory": "c",
+        "stdio.h": "c"
     }
 }

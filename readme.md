@@ -51,12 +51,14 @@ change the batchsize and epochs for better performance
              ReLU-12          [N, 256, 13, 13]               0
         MaxPool2d-13            [N, 256, 6, 6]               0
           Dropout-14                 [N, 9216]               0
-           Linear-15                 [N, 4096]      37,752,832
-             ReLU-16                 [N, 4096]               0
-          Dropout-17                 [N, 4096]               0
-           Linear-18                 [N, 4096]      16,781,312
-             ReLU-19                 [N, 4096]               0
-           Linear-20                 [N, 1000]       4,097,000
+           Linear-15                 [N, 8192]      37,752,832
+             ReLU-16                 [N, 8192]               0
+          Dropout-17                 [N, 8192]               0
+           Linear-18                 [N, 8192]      16,781,312
+             ReLU-19                 [N, 8192]               0
+           Linear-20                 [N, 8192]      16,781,312
+             ReLU-21                 [N, 8192]               0
+           Linear-22                 [N, 10]       4,097,000
 ================================================================
 ("N" stands for "batch size")
 Total params: 61,100,840

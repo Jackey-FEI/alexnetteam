@@ -3,3 +3,4 @@ imagenette2/
 *.weight
 .DS_Store
 *.weights
+obj/

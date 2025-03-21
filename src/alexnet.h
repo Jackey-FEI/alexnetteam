@@ -56,10 +56,10 @@
 #define FEATURE5_L 13
 #define POOLING5_L 6
 
-#define FC6_LAYER 4096
-#define FC7_LAYER 4096
-#define OUT_LAYER 10
-#define DROPOUT_PROB 0.4
+#define FC6_LAYER 8192 // 4096
+#define FC7_LAYER 8192 // 4096
+#define OUT_LAYER 10   // 1000
+#define DROPOUT_PROB 0.2
 
 typedef struct network
 {
@@ -100,6 +100,8 @@ typedef struct network
     fc_op fc2;
     nonlinear_op relu7;
 
+    fc_op fc4;
+    nonlinear_op relu8;
     fc_op fc3;
 } alexnet;
 
