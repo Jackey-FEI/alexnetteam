@@ -1,4 +1,4 @@
-imagenette2/
+imagenette2_full/
 *.zip
 *.weight
 .DS_Store

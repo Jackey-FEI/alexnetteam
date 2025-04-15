@@ -1,4 +1,5 @@
 import os
+import random
 
 # Define the path to the imagenette2 dataset
 base_path = './imagenette2'
@@ -28,5 +29,12 @@ with open(output_file, 'w') as f:
                     # f.write(f"{idx} .\\imagenette2\\train\\{class_folder}\\{image_name}\n")
                     f.write(f"{idx} ./imagenette2/train/{class_folder}/{image_name}\n")
             idx += 1
+
+# Shuffle the lines in the file
+with open(output_file, 'r') as f:
+    lines = f.readlines()
+random.shuffle(lines)
+with open(output_file, 'w') as f:
+    f.writelines(lines)
 
 print(f"Image paths have been written to {output_file}")
