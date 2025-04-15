@@ -103,41 +103,55 @@ static void col2img(const float *col, float *img, const conv_op *op)
 
 static void* pthread_conv_op_forward(void *argv)
 {
-    /**
-     * pthread conv_op_forward
-     * */
     conv_args cp;
     memcpy(&cp, (conv_args *)argv, sizeof(conv_args));
 
-    float *x_col    = cp.op->input_col + cp.batch_id * cp.op->in_units;
-    float *t_input  = cp.op->input + cp.batch_id * cp.op->in_units;
-    float *t_output = cp.op->output + cp.batch_id * cp.op->out_units;
-    int ikk  = cp.op->in_channels * cp.op->kernel_size * cp.op->kernel_size;
-    int owoh = cp.op->out_w * cp.op->out_h;
-    // 
-    // >>>>>>>shape<<<<<<<
-    //  
-    // t_input    [ic,ih,iw]
-    // x_col      [owoh,ikk]
-    // weights    [ikk,oc]
-    // t_output   [oc,oh,ow]
-    // >>>>>>>>>>>>>>>>>>>
-    //
-    img2col(t_input, x_col, cp.op);
-    matrix_multiply(x_col, cp.op->weights, t_output, owoh, ikk, cp.op->out_channels); //output[owoh,oc]
-    matrix_transpose(t_output, owoh, cp.op->out_channels); //output[oc,owoh]
+    const float *input  = cp.op->input + cp.batch_id * cp.op->in_units;
+    float *output       = cp.op->output + cp.batch_id * cp.op->out_units;
+    const float *weights = cp.op->weights;
+    const float *bias = cp.op->bias;
 
-    register int o_offset=0;
-    for (int i = 0; i < cp.op->out_channels; i++)
-    {
-        register float tmp = cp.op->bias[i];
-        while (o_offset < (i+1)*owoh)
-        {
-            t_output[o_offset++] += tmp;
+    int in_c = cp.op->in_channels;
+    int out_c = cp.op->out_channels;
+    int in_h = cp.op->in_h;
+    int in_w = cp.op->in_w;
+    int out_h = cp.op->out_h;
+    int out_w = cp.op->out_w;
+    int ksize = cp.op->kernel_size;
+    int stride = cp.op->stride;
+
+    for (int oc = 0; oc < out_c; ++oc) {
+        for (int oh = 0; oh < out_h; ++oh) {
+            for (int ow = 0; ow < out_w; ++ow) {
+
+                float sum = bias[oc];
+
+                for (int ic = 0; ic < in_c; ++ic) {
+                    for (int kh = 0; kh < ksize; ++kh) {
+                        for (int kw = 0; kw < ksize; ++kw) {
+
+                            int ih = oh * stride + kh;
+                            int iw = ow * stride + kw;
+
+                            if (ih < in_h && iw < in_w) {
+                                int input_idx = ic * in_h * in_w + ih * in_w + iw;
+                                int weight_idx = oc * (in_c * ksize * ksize) + ic * ksize * ksize + kh * ksize + kw;
+
+                                sum += input[input_idx] * weights[weight_idx];
+                            }
+                        }
+                    }
+                }
+
+                int output_idx = oc * (out_h * out_w) + oh * out_w + ow;
+                output[output_idx] = sum;
+            }
         }
     }
 
+    return NULL;
 }
+
 
 void conv_op_forward(conv_op *op)
 {
