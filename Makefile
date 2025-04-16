@@ -1,41 +1,67 @@
-CC=gcc
+CC = gcc
+NVCC = nvcc
 
+TARGET = alexnet
+OBJDIR = ./obj/
+SRC = ./src/
+CFLAGS = -w -lm -lpthread
+NVCCFLAGS = -O2 -arch=sm_52
 
-TARGET=alexnet
-OBJDIR=./obj/
-SRC=./src/
-CLFAGS=-w -lm -lpthread 
-
-LAYER_OBJ=activation_layer.o batchnorm_layer.o convolution_layer.o dropout_layer.o maxpooling_layer.o fc_layer.o
+LAYER_OBJ = activation_layer.o batchnorm_layer.o convolution_layer_forward.o convolution_layer_backward.o dropout_layer.o maxpooling_layer.o fc_layer.o
 LAYER_OBJS = $(addprefix $(OBJDIR), $(LAYER_OBJ))
 
-TAR_OBJ=train.o inference.o data.o
+TAR_OBJ = train.o inference.o data.o
 TAR_OBJS = $(addprefix $(OBJDIR), $(TAR_OBJ))
 
-
 $(OBJDIR):
-	mkdir -p $(OBJDIR) 
+	mkdir -p $(OBJDIR)
 
-$(TARGET): $(TAR_OBJS) $(LAYER_OBJS) 
-	$(CC) -g -o $(OBJDIR)matrix.o -c $(SRC)matrix.c $(CLFAGS)
-	$(CC) -g -o $@	$(SRC)alexnet.c $(TAR_OBJS) $(LAYER_OBJS) $(OBJDIR)matrix.o $(CLFAGS)
+$(TARGET): $(OBJDIR)alexnet.o $(OBJDIR)matrix.o $(TAR_OBJS) $(LAYER_OBJS)
+	$(NVCC) -g -o $@ \
+		$(OBJDIR)alexnet.o \
+		$(OBJDIR)matrix.o \
+		$(TAR_OBJS) \
+		$(LAYER_OBJS) \
+		-lm -lpthread
 
-$(TAR_OBJS):
-	$(CC) -g -o $(OBJDIR)train.o -c $(SRC)train.c $(CLFAGS)
-	$(CC) -g -o $(OBJDIR)inference.o -c $(SRC)inference.c $(CLFAGS)
-	$(CC) -g -o $(OBJDIR)data.o -c $(SRC)data.c $(CLFAGS)
+$(OBJDIR)alexnet.o: $(SRC)alexnet.c
+	$(NVCC) -g -Xcompiler "$(CFLAGS)" -c $< -o $@
 
-$(LAYER_OBJS):
-	$(CC) -g -o $(OBJDIR)activation_layer.o -c $(SRC)activation_layer.c $(CLFAGS)
-	$(CC) -g -o $(OBJDIR)batchnorm_layer.o -c $(SRC)batchnorm_layer.c $(CLFAGS)
-	$(CC) -g -o $(OBJDIR)convolution_layer.o -c $(SRC)convolution_layer.c $(CLFAGS)
-	$(CC) -g -o $(OBJDIR)dropout_layer.o -c $(SRC)dropout_layer.c $(CLFAGS)
-	$(CC) -g -o $(OBJDIR)maxpooling_layer.o -c $(SRC)maxpooling_layer.c $(CLFAGS)
-	$(CC) -g -o $(OBJDIR)fc_layer.o -c $(SRC)fc_layer.c $(CLFAGS)
+$(OBJDIR)matrix.o: $(SRC)matrix.c
+	$(CC) -g -o $@ -c $< $(CFLAGS)
 
+$(OBJDIR)train.o: $(SRC)train.c
+	$(CC) -g -o $@ -c $< $(CFLAGS)
+
+$(OBJDIR)inference.o: $(SRC)inference.c
+	$(CC) -g -o $@ -c $< $(CFLAGS)
+
+$(OBJDIR)data.o: $(SRC)data.c
+	$(CC) -g -o $@ -c $< $(CFLAGS)
+
+$(OBJDIR)activation_layer.o: $(SRC)activation_layer.c
+	$(CC) -g -o $@ -c $< $(CFLAGS)
+
+$(OBJDIR)batchnorm_layer.o: $(SRC)batchnorm_layer.c
+	$(CC) -g -o $@ -c $< $(CFLAGS)
+
+# CUDA file compiled with nvcc
+$(OBJDIR)convolution_layer_forward.o: $(SRC)convolution_layer_forward.cu
+	$(NVCC) $(NVCCFLAGS) -c $< -o $@
+
+$(OBJDIR)convolution_layer_backward.o: $(SRC)convolution_layer_backward.c
+	$(CC) -g -o $@ -c $< $(CFLAGS)
+
+$(OBJDIR)dropout_layer.o: $(SRC)dropout_layer.c
+	$(CC) -g -o $@ -c $< $(CFLAGS)
+
+$(OBJDIR)maxpooling_layer.o: $(SRC)maxpooling_layer.c
+	$(CC) -g -o $@ -c $< $(CFLAGS)
+
+$(OBJDIR)fc_layer.o: $(SRC)fc_layer.c
+	$(CC) -g -o $@ -c $< $(CFLAGS)
 
 all: $(OBJDIR) $(TARGET)
 
-
-clean: 
+clean:
 	rm -rf $(OBJDIR) $(TARGET)

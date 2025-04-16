@@ -21,48 +21,6 @@ typedef struct conv_args{
     short ed_tunits;
 } conv_args;
 
-static void img2col(const float *img, float *col, const conv_op *op)
-{
-    /**
-     * Output
-     *      col[ikk][owoh]
-     * */
-
-    //
-    // Todo: simplify the code
-    //
-    register int input_offset;
-    register int iwih = op->in_w*op->in_h;
-    register int kk   = op->kernel_size* op->kernel_size;
-    register int ikk  = op->in_channels * kk;
-    register float *input = img;
-    register float *x_col = col;
-    for (register unsigned short in_c = 0; in_c < op->in_channels; in_c++)
-    {
-        register int x_col_offset = in_c * kk;
-        for (register int st_x = 0; st_x < op->out_w * op->stride; st_x += op->stride)
-        {
-            for (register int st_y = 0; st_y < op->out_h * op->stride; st_y += op->stride, x_col_offset += ikk)
-            {
-                for (register unsigned short j = 0; j < op->kernel_size; j++)
-                {
-                    for (register unsigned short i = 0; i < op->kernel_size; i++, x_col_offset++)
-                    {
-                        if (!(st_x+i <op->in_w) | !(st_y+j <op->in_h))
-                        {
-                            x_col[x_col_offset] = 0;
-                            continue;
-                        }
-
-                        input_offset = (st_x+i) + (st_y+j) * op->in_w + in_c * iwih;
-                        x_col[x_col_offset] = input[input_offset];
-                    }
-                }
-            }
-        }
-        ikk += kk;
-    }
-}
 
 static void col2img(const float *col, float *img, const conv_op *op)
 {
@@ -100,86 +58,6 @@ static void col2img(const float *col, float *img, const conv_op *op)
         st_x += op->stride;
     }
 }
-
-static void* pthread_conv_op_forward(void *argv)
-{
-    conv_args cp;
-    memcpy(&cp, (conv_args *)argv, sizeof(conv_args));
-
-    const float *input  = cp.op->input + cp.batch_id * cp.op->in_units;
-    float *output       = cp.op->output + cp.batch_id * cp.op->out_units;
-    const float *weights = cp.op->weights;
-    const float *bias = cp.op->bias;
-
-    int in_c = cp.op->in_channels;
-    int out_c = cp.op->out_channels;
-    int in_h = cp.op->in_h;
-    int in_w = cp.op->in_w;
-    int out_h = cp.op->out_h;
-    int out_w = cp.op->out_w;
-    int ksize = cp.op->kernel_size;
-    int stride = cp.op->stride;
-
-    for (int oc = 0; oc < out_c; ++oc) {
-        for (int oh = 0; oh < out_h; ++oh) {
-            for (int ow = 0; ow < out_w; ++ow) {
-
-                float sum = bias[oc];
-
-                for (int ic = 0; ic < in_c; ++ic) {
-                    for (int kh = 0; kh < ksize; ++kh) {
-                        for (int kw = 0; kw < ksize; ++kw) {
-
-                            int ih = oh * stride + kh;
-                            int iw = ow * stride + kw;
-
-                            if (ih < in_h && iw < in_w) {
-                                int input_idx = ic * in_h * in_w + ih * in_w + iw;
-                                int weight_idx = oc * (in_c * ksize * ksize) + ic * ksize * ksize + kh * ksize + kw;
-
-                                sum += input[input_idx] * weights[weight_idx];
-                            }
-                        }
-                    }
-                }
-
-                int output_idx = oc * (out_h * out_w) + oh * out_w + ow;
-                output[output_idx] = sum;
-            }
-        }
-    }
-
-    return NULL;
-}
-
-
-void conv_op_forward(conv_op *op)
-{
-    /**
-     * conv2d forward
-     * 
-     * Input:
-     *      op->input
-     *      op->weights
-     *      op->bias
-     * Output:
-     *      op->output
-     * */
-    op->input_col = (float *)calloc((op->batchsize)*(op->in_channels * op->kernel_size* op->kernel_size)*(op->out_w * op->out_h), sizeof(float));
-    conv_args args[op->batchsize+1];
-    pthread_t tid[op->batchsize+1];
-    for (int p = 0; p < op->batchsize; p++)
-    {
-        args[p].op = op;
-        args[p].batch_id = p;
-        pthread_create(&tid[p], NULL, pthread_conv_op_forward, (void *)(&args[p]));
-    }
-    
-    for (int p = 0; p < op->batchsize; p++)
-        pthread_join(tid[p], NULL);
-
-}
-
 
 static void* pthread_conv_op_backward(void *argv)
 {

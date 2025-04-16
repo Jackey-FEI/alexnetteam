@@ -341,6 +341,7 @@ void backward_alexnet(alexnet *net, int *batch_Y)
     conv_op_backward(&(net->conv5));
     free(net->conv5.d_output);
     free(net->conv5.output);
+
 #ifdef SHOW_OP_TIME
     clock_gettime(CLOCK_MONOTONIC, &finish);
     duration = (finish.tv_sec - start.tv_sec);

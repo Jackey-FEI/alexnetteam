@@ -20,8 +20,16 @@ typedef struct conv_op {
     short batchsize;
 } conv_op;
 
-             
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void conv_op_forward(conv_op *op);
+
+#ifdef __cplusplus
+}
+#endif
+
 void conv_op_backward(conv_op *op);
 
 inline void calloc_conv_weights(conv_op *op);
