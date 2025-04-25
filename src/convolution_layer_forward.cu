@@ -30,36 +30,43 @@ __global__ void conv2d_forward_kernel(
 
     if (oc >= out_c) return;
 
-    __syncthreads();
+    // warp shape 4 * 8
+    int warp_h = 4;
+    int warp_w = 8;
+    int local_h = lane_id / warp_w;
+    int local_w = lane_id % warp_w;
+    int tile_w = (out_w + warp_w - 1) / warp_w;
+    int tile_h = (out_h + warp_h - 1) / warp_h;
 
-    int lane_cnt = lane_id;
-    while(lane_cnt < out_h * out_w) {
-        // obtain oh and ow based on the lane_cnt (position of each thread in one image)
-        int oh = lane_cnt / out_w;
-        int ow = lane_cnt % out_w;
-        float sum = bias[oc];
-        // loop through all input channels
-        for (int ic = 0; ic < in_c; ++ic) {
-            // convolution
-            for (int kh = 0; kh < ksize; ++kh) {
-                for (int kw = 0; kw < ksize; ++kw) {
-                    // obtain ih and iw
-                    int ih = oh * stride + kh;
-                    int iw = ow * stride + kw;
+    for (int i_th = 0; i_th < tile_h; i_th++) {
+        for (int j_tw = 0; j_tw < tile_w; j_tw++) {
+            int oh = i_th * warp_h + local_h;
+            int ow = j_tw * warp_w + local_w;
 
-                    if (ih < in_h && iw < in_w) {
-                        int input_idx = batch_id * in_units + ic * in_h * in_w + ih * in_w + iw;
-                        int weight_idx = oc * in_c * ksize * ksize + ic * ksize * ksize + kh * ksize + kw;
-                        sum += input[input_idx] * weights[weight_idx];
+            if (oh < out_h && ow < out_w) {
+
+                float sum = bias[oc];
+                // loop through all input channels
+                for (int ic = 0; ic < in_c; ++ic) {
+                    // convolution
+                    for (int kh = 0; kh < ksize; ++kh) {
+                        for (int kw = 0; kw < ksize; ++kw) {
+                            // obtain ih and iw
+                            int ih = oh * stride + kh;
+                            int iw = ow * stride + kw;
+
+                            if (ih < in_h && iw < in_w) {
+                                int input_idx = batch_id * in_units + ic * in_h * in_w + ih * in_w + iw;
+                                int weight_idx = oc * in_c * ksize * ksize + ic * ksize * ksize + kh * ksize + kw;
+                                sum += input[input_idx] * weights[weight_idx];
+                            }
+                        }
                     }
                 }
+                int output_idx = batch_id * out_units + oc * out_h * out_w + oh * out_w + ow;
+                output[output_idx] = sum;
             }
         }
-        int output_idx = batch_id * out_units + oc * out_h * out_w + oh * out_w + ow;
-        output[output_idx] = sum;
-
-        // warp move to next computation
-        lane_cnt += 32;
     }
 }
 
