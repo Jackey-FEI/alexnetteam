@@ -10,6 +10,7 @@
 #include "maxpooling_layer.h"
 #include <cuda_runtime.h>
 #include <float.h>
+#include <stdio.h>
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
@@ -113,107 +114,107 @@ void max_pooling_op_forward(max_pooling_op *op)
     cudaFree(d_out);
 }
 
-
+// Backward kernel 
 __global__ void maxpool_backward_naive(const float *__restrict__ x,
-    const float *__restrict__ d_y,
-    float *__restrict__ d_x,
+    const float *__restrict__ dy,
+    float *__restrict__ dx,
     int N, int C, int H, int W,
-    int OH, int OW, int P_S, int P_K)
+    int OH, int OW, int stride, int K)
 {
-const int n   = blockIdx.y;          // image id
-const int cg  = blockIdx.x;          // 16-channel group
-const int warp  = threadIdx.x >> 5;  // 0‥15
-const int lane  = threadIdx.x & 31;  // 0‥31
-const int c   = cg * WARPS_PER_BLOCK + warp;
+const int n = blockIdx.y;
+const int cg = blockIdx.x;
+const int warp = threadIdx.x >> 5;
+const int lane = threadIdx.x & 31;
+const int c = cg * WARPS_PER_BLOCK + warp;
 if (c >= C) return;
 
-/* 4 × 8 warp tile  */
-constexpr int WARP_H = 4, WARP_W = 8;
-const int local_h = lane / WARP_W;          // 0‥3
-const int local_w = lane % WARP_W;          // 0‥7
+const int WARP_H = 4, WARP_W = 8;
+const int local_h = lane / WARP_W;
+const int local_w = lane % WARP_W;
 const int tiles_h = (OH + WARP_H - 1) / WARP_H;
 const int tiles_w = (OW + WARP_W - 1) / WARP_W;
 
-for (int th = 0; th < tiles_h; ++th)
-{
+for (int th = 0; th < tiles_h; ++th) {
 int oy = th * WARP_H + local_h;
 if (oy >= OH) continue;
-
-for (int tw = 0; tw < tiles_w; ++tw)
-{
+for (int tw = 0; tw < tiles_w; ++tw) {
 int ox = tw * WARP_W + local_w;
 if (ox >= OW) continue;
 
-/* ---------- locate max position in this pool window ---------- */
-const int ih0 = oy * P_S;
-const int iw0 = ox * P_S;
-
-float vmax = -FLT_MAX;
-int   imax = -1;              
-for (int ky = 0; ky < P_K; ++ky)
-for (int kx = 0; kx < P_K; ++kx)
-{
+int ih0 = oy * stride;
+int iw0 = ox * stride;
+float max_val = -FLT_MAX;
+int max_i = ih0, max_j = iw0;
+// recompute argmax
+for (int ky = 0; ky < K; ++ky) {
 int ih = ih0 + ky;
+if (ih >= H) break;
+for (int kx = 0; kx < K; ++kx) {
 int iw = iw0 + kx;
-if (ih < H && iw < W)
-{
-int idx = ((n * C + c) * H + ih) * W + iw;
-float v = x[idx];
-if (v > vmax)
-{
-vmax = v;
-imax = idx;
+if (iw >= W) break;
+float v = x[((n * C + c) * H + ih) * W + iw];
+if (v > max_val) {
+max_val = v;
+max_i = ih;
+max_j = iw;
+}
+}
+}
+int out_idx = ((n * C + c) * OH + oy) * OW + ox;
+int in_idx  = ((n * C + c) * H  + max_i) * W  + max_j;
+float grad = dy[out_idx] / N;
+atomicAdd(&dx[in_idx], grad);
 }
 }
 }
 
-/* ---------- accumulate gradient to that position ------------- */
-const int oyx_idx = ((n * C + c) * OH + oy) * OW + ox;
-float g = d_y[oyx_idx] / static_cast<float>(N); 
-if (imax >= 0)
-atomicAdd(&d_x[imax], g);
-}
-}
-}
-
-
+// Backward operation
 void max_pooling_op_backward(max_pooling_op *op)
 {
-int  N  = op->batchsize;
-int  C  = op->channels;
-int  H  = op->in_h;
-int  W  = op->in_w;
-int  OH = op->out_h;
-int  OW = op->out_w;
+int N      = op->batchsize;
+int C      = op->channels;
+int H      = op->in_h;
+int W      = op->in_w;
+int OH     = op->out_h;
+int OW     = op->out_w;
+int stride = op->stride;
+int K      = op->kernel_size;
 
-size_t in_bytes  = (size_t)N * C * H  * W  * sizeof(float);
+size_t in_bytes  = (size_t)N * C * H * W * sizeof(float);
 size_t out_bytes = (size_t)N * C * OH * OW * sizeof(float);
 
-/* ---------- device buffers ---------- */
-float *d_x, *d_dx, *d_dy;
-cudaMalloc(&d_x,  in_bytes);  
-cudaMalloc(&d_dx, in_bytes);       
-cudaMalloc(&d_dy, out_bytes);     
+float *d_x, *d_y, *d_dx;
 
-cudaMemcpy(d_x,  op->input,   in_bytes,  cudaMemcpyHostToDevice);
-cudaMemcpy(d_dy, op->d_output, out_bytes, cudaMemcpyHostToDevice);
+// allocate device memory
+cudaMalloc(&d_x, in_bytes);
+cudaMalloc(&d_y, out_bytes);
+cudaMalloc(&d_dx, in_bytes);
+
+// copy data to device
+cudaMemcpy(d_x, op->input, in_bytes, cudaMemcpyHostToDevice);
+cudaMemcpy(d_y, op->d_output, out_bytes, cudaMemcpyHostToDevice);
+
+// initialize gradients
 cudaMemset(d_dx, 0, in_bytes);
 
-/* ---------- launch grid identical to forward ---------- */
-const int TPB = THREADS_PER_BLOCK;             
-int num_c_blocks = (C + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK;
-dim3 blockDim(TPB);
-dim3 gridDim(num_c_blocks, N);
+// launch backward kernel
+dim3 blockDim(THREADS_PER_BLOCK);
+dim3 gridDim((C + WARPS_PER_BLOCK - 1) / WARPS_PER_BLOCK, N);
 
-maxpool_backward_naive<<<gridDim, blockDim>>>(
-d_x, d_dy, d_dx, N, C, H, W, OH, OW, op->stride, op->kernel_size);
+maxpool_backward_naive<<<gridDim, blockDim>>>(d_x, d_y, d_dx, N, C, H, W, OH, OW, stride, K);
 cudaDeviceSynchronize();
 
-/* ---------- copy result back ---------- */
+// reallocate host gradient buffer to match device size
+if (op->d_input) {
+free(op->d_input);
+}
+op->d_input = (float *)malloc(in_bytes);
+
+// copy gradients back to host
 cudaMemcpy(op->d_input, d_dx, in_bytes, cudaMemcpyDeviceToHost);
 
-/* ---------- cleanup ---------- */
+// free device memory
 cudaFree(d_x);
+cudaFree(d_y);
 cudaFree(d_dx);
-cudaFree(d_dy);
 }
