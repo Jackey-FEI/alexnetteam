@@ -77,3 +77,5 @@ backward_alexnet duration: 1.4132s
 >>>>>>>>>>>>>>>>>>>>>>>>>>> training end >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 total training duration: 38.4482s
+
+# 512 threads, one warp one out channel

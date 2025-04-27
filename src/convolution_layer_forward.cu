@@ -9,6 +9,7 @@
 
 #define threads_per_block 512
 #define warps_per_block (threads_per_block / 32) // 16
+#define out_c_per_warp 6
 
 __global__ void conv2d_forward_kernel(
     const float *input,
@@ -26,9 +27,9 @@ __global__ void conv2d_forward_kernel(
     int tid = threadIdx.x; // range[0 ~ threads_per_block 512)
     int warp_id = tid / 32; // range[0 ~ warps_per_block 16)
     int lane_id = tid % 32; // range[0 ~ 32)
-    int oc = channel_block_id * warps_per_block + warp_id; // range[0 ~ out_c)
+    int oc_base = (channel_block_id * warps_per_block + warp_id) * out_c_per_warp; // range[0 ~ out_c)
 
-    if (oc >= out_c) return;
+    if (oc_base >= out_c) return;
 
     // warp shape 4 * 8
     int warp_h = 4;
@@ -45,7 +46,14 @@ __global__ void conv2d_forward_kernel(
 
             if (oh < out_h && ow < out_w) {
 
-                float sum = bias[oc];
+                float sum[out_c_per_warp] = {0};
+                for (int i = 0; i < out_c_per_warp; i++) {
+                    int oc = oc_base + i;
+                    if (oc < out_c) {
+                        sum[i] = bias[oc];
+                    }
+                }
+
                 // loop through all input channels
                 for (int ic = 0; ic < in_c; ++ic) {
                     // convolution
@@ -57,14 +65,25 @@ __global__ void conv2d_forward_kernel(
 
                             if (ih < in_h && iw < in_w) {
                                 int input_idx = batch_id * in_units + ic * in_h * in_w + ih * in_w + iw;
-                                int weight_idx = oc * in_c * ksize * ksize + ic * ksize * ksize + kh * ksize + kw;
-                                sum += input[input_idx] * weights[weight_idx];
+                                for (int i = 0; i < out_c_per_warp; i++) {
+                                    int oc = oc_base + i;
+                                    if (oc < out_c) {
+                                        int weight_idx = oc * in_c * ksize * ksize + ic * ksize * ksize + kh * ksize + kw;
+                                        sum[i] += input[input_idx] * weights[weight_idx];
+                                    }
+                                }
                             }
                         }
                     }
                 }
-                int output_idx = batch_id * out_units + oc * out_h * out_w + oh * out_w + ow;
-                output[output_idx] = sum;
+
+                for (int i = 0; i < out_c_per_warp; i++) {
+                    int oc = oc_base + i;
+                    if (oc < out_c) {
+                        int output_idx = batch_id * out_units + oc * out_h * out_w + oh * out_w + ow;
+                        output[output_idx] = sum[i];
+                    }
+                }
             }
         }
     }
@@ -113,55 +132,6 @@ static void img2col(const float *img, float *col, const conv_op *op)
     }
 }
 
-static void print_conv_op(conv_op *op) {
-    printf(">>>>>>>>>>>>>>>>> conv >>>>>>>>>>>>>>>>>>>\n");
-    printf("in channels: %d \n", op->in_channels);
-    printf("out channels: %d \n", op->out_channels);
-    printf("kernel size: %d \n", op->kernel_size);
-    printf("padding: %d \n", op->padding);
-    printf("stride: %d \n", op->stride);
-    printf("in width: %d \n", op->in_w);
-    printf("in height: %d \n", op->in_h);
-    printf("out width: %d \n", op->out_w);
-    printf("out height: %d \n", op->out_h);
-    printf("in units: %d \n", op->in_units);
-    printf("out units: %d \n", op->out_units);
-    printf("batch size: %d \n", op->batchsize);
-    printf(">>>>>>>>>>>>>>>>>> conv >>>>>>>>>>>>>>>>>>\n");
-}
-
-// void nchw_to_rowmajor(float* dst, const float* src, int batch, int c, int h, int w) {
-//     int hw = h * w;
-//     int chw = c * hw;
-//     for (int n = 0; n < batch; ++n) {
-//         for (int h_i = 0; h_i < h; ++h_i) {
-//             for (int w_i = 0; w_i < w; ++w_i) {
-//                 for (int c_i = 0; c_i < c; ++c_i) {
-//                     int rowmajor_idx = n * chw + h_i * w * c + w_i * c + c_i;
-//                     int nchw_idx = n * chw + c_i * hw + h_i * w + w_i;
-//                     dst[rowmajor_idx] = src[nchw_idx];
-//                 }
-//             }
-//         }
-//     }
-// }
-
-// void rowmajor_to_nchw(float* dst, const float* src, int batch, int c, int h, int w) {
-//     int hw = h * w;
-//     int chw = c * hw;
-//     for (int n = 0; n < batch; ++n) {
-//         for (int h_i = 0; h_i < h; ++h_i) {
-//             for (int w_i = 0; w_i < w; ++w_i) {
-//                 for (int c_i = 0; c_i < c; ++c_i) {
-//                     int rowmajor_idx = n * chw + h_i * w * c + w_i * c + c_i;
-//                     int nchw_idx = n * chw + c_i * hw + h_i * w + w_i;
-//                     dst[nchw_idx] = src[rowmajor_idx];
-//                 }
-//             }
-//         }
-//     }
-// }
-
 __host__ void conv_op_forward(conv_op *op) {
     /* NOTE: allocate for backward */
     op->input_col = (float *)calloc((op->batchsize+1)*(op->in_channels * op->kernel_size* op->kernel_size)*(op->out_w * op->out_h), sizeof(float));
@@ -175,33 +145,24 @@ __host__ void conv_op_forward(conv_op *op) {
     int in_units = op->in_channels * op->in_h * op->in_w;
     int out_units = op->out_channels * op->out_h * op->out_w;
 
-    // // Convert input and weight from row-major to channel-major (NCHW)
-    // float *converted_input = (float *)malloc(sizeof(float) * op->batchsize * in_units);
-    // rowmajor_to_nchw(converted_input, op->input, op->batchsize, op->in_channels, op->in_h, op->in_w);
-
     float *d_input, *d_weights, *d_bias, *d_output;
     size_t input_size = sizeof(float) * op->batchsize * in_units;
     size_t weight_size = sizeof(float) * op->out_channels * op->in_channels * op->kernel_size * op->kernel_size;
     size_t bias_size = sizeof(float) * op->out_channels;
     size_t output_size = sizeof(float) * op->batchsize * out_units;
-    // float *converted_weights = (float *)malloc(weight_size);
-    // rowmajor_to_nchw(converted_weights, op->weights, op->out_channels, op->in_channels, op->kernel_size, op->kernel_size);
 
-    // Cuda memory malloc
     cudaMalloc(&d_input, input_size);
     cudaMalloc(&d_weights, weight_size);
     cudaMalloc(&d_bias, bias_size);
     cudaMalloc(&d_output, output_size);
 
-    // cudaMemcpy(d_input, converted_input, input_size, cudaMemcpyHostToDevice);
-    // cudaMemcpy(d_weights, converted_weights, weight_size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_input, op->input, input_size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_weights, op->weights, weight_size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_bias, op->bias, bias_size, cudaMemcpyHostToDevice);
     cudaDeviceSynchronize();
 
     // Thread parameters
-    const int num_channel_blocks = (op->out_channels + warps_per_block - 1) / warps_per_block;
+    const int num_channel_blocks = (op->out_channels + warps_per_block * out_c_per_warp - 1) / (warps_per_block * out_c_per_warp);
 
     dim3 blockDim(threads_per_block);
     dim3 gridDim(num_channel_blocks, op->batchsize);
@@ -227,18 +188,9 @@ __host__ void conv_op_forward(conv_op *op) {
     }
 
     cudaMemcpy(op->output, d_output, output_size, cudaMemcpyDeviceToHost);
-    // Convert output from channel-major (NCHW) to row-major
-    // float *converted_output = (float *)malloc(sizeof(float) * op->batchsize * out_units);
-    // cudaMemcpy(converted_output, d_output, output_size, cudaMemcpyDeviceToHost);
-    // nchw_to_rowmajor(op->output, converted_output, op->batchsize, op->out_channels, op->out_h, op->out_w);
 
-    // Clean up
-    // free(converted_input);
-    // free(converted_weights);
-    // free(converted_output);
     cudaFree(d_input);
     cudaFree(d_weights);
     cudaFree(d_bias);
     cudaFree(d_output);
 }
-
