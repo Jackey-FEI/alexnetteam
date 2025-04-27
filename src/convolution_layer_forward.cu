@@ -9,6 +9,7 @@
 
 #define threads_per_block 512
 #define warps_per_block (threads_per_block / 32) // 16
+#define out_c_per_warp 6
 
 __global__ void conv2d_forward_kernel(
     const float *input,
@@ -26,9 +27,9 @@ __global__ void conv2d_forward_kernel(
     int tid = threadIdx.x; // range[0 ~ threads_per_block 512)
     int warp_id = tid / 32; // range[0 ~ warps_per_block 16)
     int lane_id = tid % 32; // range[0 ~ 32)
-    int oc = channel_block_id * warps_per_block + warp_id; // range[0 ~ out_c)
+    int oc_base = (channel_block_id * warps_per_block + warp_id) * out_c_per_warp; // range[0 ~ out_c)
 
-    if (oc >= out_c) return;
+    if (oc_base >= out_c) return;
 
     // warp shape 4 * 8
     int warp_h = 4;
@@ -45,7 +46,14 @@ __global__ void conv2d_forward_kernel(
 
             if (oh < out_h && ow < out_w) {
 
-                float sum = bias[oc];
+                float sum[out_c_per_warp] = {0};
+                for (int i = 0; i < out_c_per_warp; i++) {
+                    int oc = oc_base + i;
+                    if (oc < out_c) {
+                        sum[i] = bias[oc];
+                    }
+                }
+
                 // loop through all input channels
                 for (int ic = 0; ic < in_c; ++ic) {
                     // convolution
@@ -57,14 +65,25 @@ __global__ void conv2d_forward_kernel(
 
                             if (ih < in_h && iw < in_w) {
                                 int input_idx = batch_id * in_units + ic * in_h * in_w + ih * in_w + iw;
-                                int weight_idx = oc * in_c * ksize * ksize + ic * ksize * ksize + kh * ksize + kw;
-                                sum += input[input_idx] * weights[weight_idx];
+                                for (int i = 0; i < out_c_per_warp; i++) {
+                                    int oc = oc_base + i;
+                                    if (oc < out_c) {
+                                        int weight_idx = oc * in_c * ksize * ksize + ic * ksize * ksize + kh * ksize + kw;
+                                        sum[i] += input[input_idx] * weights[weight_idx];
+                                    }
+                                }
                             }
                         }
                     }
                 }
-                int output_idx = batch_id * out_units + oc * out_h * out_w + oh * out_w + ow;
-                output[output_idx] = sum;
+
+                for (int i = 0; i < out_c_per_warp; i++) {
+                    int oc = oc_base + i;
+                    if (oc < out_c) {
+                        int output_idx = batch_id * out_units + oc * out_h * out_w + oh * out_w + ow;
+                        output[output_idx] = sum[i];
+                    }
+                }
             }
         }
     }
@@ -113,22 +132,22 @@ static void img2col(const float *img, float *col, const conv_op *op)
     }
 }
 
-static void print_conv_op(conv_op *op) {
-    printf(">>>>>>>>>>>>>>>>> conv >>>>>>>>>>>>>>>>>>>\n");
-    printf("in channels: %d \n", op->in_channels);
-    printf("out channels: %d \n", op->out_channels);
-    printf("kernel size: %d \n", op->kernel_size);
-    printf("padding: %d \n", op->padding);
-    printf("stride: %d \n", op->stride);
-    printf("in width: %d \n", op->in_w);
-    printf("in height: %d \n", op->in_h);
-    printf("out width: %d \n", op->out_w);
-    printf("out height: %d \n", op->out_h);
-    printf("in units: %d \n", op->in_units);
-    printf("out units: %d \n", op->out_units);
-    printf("batch size: %d \n", op->batchsize);
-    printf(">>>>>>>>>>>>>>>>>> conv >>>>>>>>>>>>>>>>>>\n");
-}
+// static void print_conv_op(conv_op *op) {
+//     printf(">>>>>>>>>>>>>>>>> conv >>>>>>>>>>>>>>>>>>>\n");
+//     printf("in channels: %d \n", op->in_channels);
+//     printf("out channels: %d \n", op->out_channels);
+//     printf("kernel size: %d \n", op->kernel_size);
+//     printf("padding: %d \n", op->padding);
+//     printf("stride: %d \n", op->stride);
+//     printf("in width: %d \n", op->in_w);
+//     printf("in height: %d \n", op->in_h);
+//     printf("out width: %d \n", op->out_w);
+//     printf("out height: %d \n", op->out_h);
+//     printf("in units: %d \n", op->in_units);
+//     printf("out units: %d \n", op->out_units);
+//     printf("batch size: %d \n", op->batchsize);
+//     printf(">>>>>>>>>>>>>>>>>> conv >>>>>>>>>>>>>>>>>>\n");
+// }
 
 // void nchw_to_rowmajor(float* dst, const float* src, int batch, int c, int h, int w) {
 //     int hw = h * w;
@@ -201,7 +220,7 @@ __host__ void conv_op_forward(conv_op *op) {
     cudaDeviceSynchronize();
 
     // Thread parameters
-    const int num_channel_blocks = (op->out_channels + warps_per_block - 1) / warps_per_block;
+    const int num_channel_blocks = (op->out_channels + warps_per_block * out_c_per_warp - 1) / (warps_per_block * out_c_per_warp);
 
     dim3 blockDim(threads_per_block);
     dim3 gridDim(num_channel_blocks, op->batchsize);
@@ -241,4 +260,3 @@ __host__ void conv_op_forward(conv_op *op) {
     cudaFree(d_bias);
     cudaFree(d_output);
 }
-

@@ -77,3 +77,5 @@ backward_alexnet duration: 1.4269s
 >>>>>>>>>>>>>>>>>>>>>>>>>>> training end >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 total training duration: 64.2815s
+
+# conv to cuda, one thread one op
