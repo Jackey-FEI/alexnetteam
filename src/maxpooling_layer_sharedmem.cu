@@ -25,6 +25,8 @@ typedef struct mp_args
 #define WARPS_PER_BLOCK (THREADS_PER_BLOCK / WARP) // 16
 #define TILE 16
 
+// P_S: stride
+// P_K: kernel size
 __global__ void maxpool_forward_naive(const float *__restrict__ x,
                                       float *__restrict__ y,
                                       int N, int C, int H, int W,
@@ -45,11 +47,10 @@ __global__ void maxpool_forward_naive(const float *__restrict__ x,
     const int tiles_h = (OH + WARP_H - 1) / WARP_H;
     const int tiles_w = (OW + WARP_W - 1) / WARP_W;
 
-    const int tileSize = H;
     const int SH_W = TILE + P_K - 1; // 10 when TILE = 8 and K = 3
-    const int SH_H = SH_W;               // square
-    const int SH_SIZE = SH_W * SH_H;     // 100 floats
-    extern __shared__ float sm[];        // shared memory for one Block
+    const int SH_H = SH_W;           // square
+    const int SH_SIZE = SH_W * SH_H; // 100 floats
+    extern __shared__ float sm[];    // shared memory for one Block
     float *warp_smem = sm + warp * SH_SIZE;
 
     for (int th = 0; th < tiles_h; ++th)
@@ -62,18 +63,26 @@ __global__ void maxpool_forward_naive(const float *__restrict__ x,
             int ox0 = tw * WARP_W;
             int iw0 = ox0 * P_S;
 
+            // shared memory is not large enough to hold one image's single channel
+            // so we need to load 10×10 tile (with halo) for each warp
             /* ---------- 1. load 10×10 tile (+halo) ---------- */
-            for (int t = lane; t < SH_SIZE; t += WARP)
+            // if condition: we only need certain threads in the warp to load
+            // the shareed memory, this is deceided by the tile size, the kernel size and the stride
+            if (((SH_W - P_K + 1) / P_S == 0) || lane % ((SH_W - P_K + 1) / P_S) == 0)
             {
-                int dy = t / SH_W; // 0..9
-                int dx = t % SH_W; // 0..9
-                int ih = ih0 + dy;
-                int iw = iw0 + dx;
+                // load the first row
+                for (int t = lane; t < SH_W; t += WARP)
+                {
+                    int dy = t / SH_W; // 0..9
+                    int dx = t % SH_W; // 0..9
+                    int ih = ih0 + dy;
+                    int iw = iw0 + dx;
 
-                float v = (ih < H && iw < W)
-                              ? x[((n * C + c) * H + ih) * W + iw]
-                              : -FLT_MAX;
-                warp_smem[dy * SH_W + dx] = v;
+                    float v = (ih < H && iw < W)
+                                  ? x[((n * C + c) * H + ih) * W + iw]
+                                  : -FLT_MAX;
+                    warp_smem[dy * SH_W + dx] = v;
+                }
             }
             __syncwarp(); // tile ready
 
@@ -98,7 +107,6 @@ __global__ void maxpool_forward_naive(const float *__restrict__ x,
 
 void max_pooling_op_forward(max_pooling_op *op)
 {
-    mp_args args[op->batchsize + 1];
     int N = op->batchsize;
     int C = op->channels;
     int H = op->in_h;
