@@ -54,9 +54,9 @@ $(OBJDIR)convolution_layer_backward.o: $(SRC)convolution_layer_backward.c
 
 $(OBJDIR)dropout_layer.o: $(SRC)dropout_layer.c
 	$(CC) -g -o $@ -c $< $(CFLAGS)
-
-$(OBJDIR)maxpooling_layer.o: $(SRC)maxpooling_layer.cu
-	$(NVCC) $(NVCCFLAGS) -c $< -o $@
+	
+$(OBJDIR)maxpooling_layer.o: $(SRC)maxpooling_layer.c
+$(CC) -g -o $@ -c $< $(CFLAGS)
 
 $(OBJDIR)fc_layer.o: $(SRC)fc_layer.c
 	$(CC) -g -o $@ -c $< $(CFLAGS)
