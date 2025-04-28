@@ -23,7 +23,7 @@ typedef struct mp_args
 #define WARP 32
 #define THREADS_PER_BLOCK 512
 #define WARPS_PER_BLOCK (THREADS_PER_BLOCK / WARP) // 16
-#define TILE 16
+#define TILE 10
 
 // P_S: stride
 // P_K: kernel size
