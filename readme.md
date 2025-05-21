@@ -1,3 +1,6 @@
+## Final Report
+[Accelerating AlexNet on GPU](https://drive.google.com/file/d/1M3l7jbgerutA0GwOjH8k3oBDxyWp3K1a/view?usp=sharing)
+
 ## How to Run
 
 ### Generate sub-dataset for ece cluster
